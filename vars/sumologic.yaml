@@ -1,0 +1,9 @@
+---
+sumologic_collector_url: "https://collectors.sumologic.com/rest/download"
+sumologic_install_dir: "/opt/SumoCollector"
+sumologic_config_dir: "{{ sumologic_install_dir }}/config"
+sumologic_json_path: "{{ sumologic_install_dir }}/sumo.json"
+sumologic_user_properties_path: "{{ sumologic_config_dir }}/user.properties"
+sumologic_local_mode: false
+os_package_name: "sumocollector"
+os_package_cache_dir: "/tmp"

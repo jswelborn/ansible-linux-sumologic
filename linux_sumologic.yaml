@@ -1,0 +1,140 @@
+---
+- name: Install Sumo Logic Collector on Linux
+  hosts: all
+  become: true
+  vars_files:
+    - vars/sumologic.yaml
+
+  pre_tasks:
+    - name: Validate Sumo Logic environment is provided
+      ansible.builtin.assert:
+        that:
+          - sumologic_environment is defined
+          - sumologic_environment in ['staging', 'production']
+        fail_msg: "sumologic_environment must be provided by AAP as either staging or production."
+
+    - name: Set Sumo Logic ephemeral behavior
+      ansible.builtin.set_fact:
+        sumologic_ephemeral: "{{ true if sumologic_environment == 'staging' else false }}"
+
+    - name: Validate Sumo Logic token is provided
+      ansible.builtin.assert:
+        that:
+          - sumologic_token is defined
+          - sumologic_token | trim | length > 0
+        fail_msg: "sumologic_token must be provided by AAP credential unless sumologic_local_mode is true."
+      when: not sumologic_local_mode
+      no_log: true
+
+  tasks:
+    - name: Gather installed package facts
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Check whether Sumo Logic Collector is already installed
+      ansible.builtin.set_fact:
+        sumologic_installed: >-
+          {{
+            'SumoCollector' in ansible_facts.packages or
+            'sumocollector' in ansible_facts.packages
+          }}
+
+    - name: Determine Sumo Logic package type
+      ansible.builtin.set_fact:
+        os_package_type: >-
+          {%- if ansible_os_family == 'Debian' -%}
+          deb
+          {%- elif ansible_os_family == 'RedHat' or ansible_distribution == 'Amazon' -%}
+          rpm
+          {%- else -%}
+          unsupported
+          {%- endif -%}
+
+    - name: Fail if unsupported platform
+      ansible.builtin.fail:
+        msg: "Unsupported platform: {{ ansible_distribution }} / {{ ansible_os_family }}"
+      when: os_package_type == "unsupported"
+
+    - name: Determine architecture path
+      ansible.builtin.set_fact:
+        sumologic_arch_path: "{{ 'aarch/64' if ansible_architecture == 'aarch64' else '64' }}"
+
+    - name: Set local package path
+      ansible.builtin.set_fact:
+        os_package_local_path: "{{ os_package_cache_dir }}/sumocollector.{{ os_package_type }}"
+
+    - name: Download Sumo Logic Collector
+      ansible.builtin.get_url:
+        url: "{{ sumologic_collector_url }}/{{ os_package_type }}/{{ sumologic_arch_path }}/"
+        dest: "{{ os_package_local_path }}"
+        mode: "0644"
+      when: not sumologic_installed
+
+    - name: Install on Debian/Ubuntu
+      ansible.builtin.apt:
+        deb: "{{ os_package_local_path }}"
+        state: present
+      when:
+        - not sumologic_installed
+        - os_package_type == "deb"
+
+    - name: Install on RHEL/Amazon
+      ansible.builtin.dnf:
+        name: "{{ os_package_local_path }}"
+        state: present
+        disable_gpg_check: true
+      when:
+        - not sumologic_installed
+        - os_package_type == "rpm"
+
+    - name: Ensure config directory exists
+      ansible.builtin.file:
+        path: "{{ sumologic_config_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Copy Sumo sources config
+      ansible.builtin.copy:
+        src: linux_sumo.json
+        dest: "{{ sumologic_json_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart sumo collector
+
+    - name: Set collector name
+      ansible.builtin.set_fact:
+        sumologic_collector_name: "{{ ansible_hostname }}"
+
+    - name: Deploy user.properties
+      ansible.builtin.template:
+        src: user.properties.j2
+        dest: "{{ sumologic_user_properties_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      notify:
+        - stop collector on ubuntu
+        - restart sumo collector
+      no_log: true
+
+  handlers:
+    - name: stop collector on ubuntu
+      ansible.builtin.command: "{{ sumologic_install_dir }}/collector stop"
+      args:
+        chdir: "{{ sumologic_install_dir }}"
+      when:
+        - ansible_distribution == "Ubuntu"
+        - not sumologic_local_mode
+      changed_when: true
+
+    - name: restart sumo collector
+      ansible.builtin.command: "{{ sumologic_install_dir }}/collector restart"
+      args:
+        chdir: "{{ sumologic_install_dir }}"
+      when: not sumologic_local_mode
+      retries: 3
+      delay: 15
+      changed_when: true
