@@ -1,0 +1,21 @@
+---
+- name: Check Sumo Logic Collector service
+  hosts: all
+  gather_facts: false
+
+  vars:
+    service_name: collector.service
+
+  tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Fail if Sumo Logic Collector service is missing
+      ansible.builtin.fail:
+        msg: "Sumo Logic Collector service is missing"
+      when: service_name not in ansible_facts.services
+
+    - name: Fail if Sumo Logic Collector service is not running
+      ansible.builtin.fail:
+        msg: "Sumo Logic Collector service exists but is not running"
+      when: ansible_facts.services[service_name].state != "running"
