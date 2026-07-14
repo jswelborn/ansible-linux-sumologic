@@ -10,6 +10,12 @@
   tasks:
     - name: Gather service facts
       ansible.builtin.service_facts:
+      register: sumologic_service_facts
+      ignore_unreachable: true
+
+    - name: End compliance check for unreachable host
+      ansible.builtin.meta: end_host
+      when: sumologic_service_facts is ansible.builtin.unreachable
 
     - name: Fail if SumoLogic Collector service is missing
       ansible.builtin.fail:
@@ -27,6 +33,12 @@
 
     - name: Refresh service facts after remediation
       ansible.builtin.service_facts:
+      register: sumologic_remediation_facts
+      ignore_unreachable: true
+
+    - name: End compliance check if host became unreachable
+      ansible.builtin.meta: end_host
+      when: sumologic_remediation_facts is ansible.builtin.unreachable
 
     - name: Fail if SumoLogic Collector service is still not running
       ansible.builtin.fail:
