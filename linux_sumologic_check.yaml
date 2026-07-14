@@ -1,6 +1,7 @@
 ---
-- name: Check Sumo Logic Collector service
+- name: Check and remediate SumoLogic Collector service
   hosts: all
+  become: true
   gather_facts: false
 
   vars:
@@ -10,12 +11,26 @@
     - name: Gather service facts
       ansible.builtin.service_facts:
 
-    - name: Fail if Sumo Logic Collector service is missing
+    - name: Fail if SumoLogic Collector service is missing
       ansible.builtin.fail:
-        msg: "Sumo Logic Collector service is missing"
+        msg: "SumoLogic Collector service is missing"
       when: service_name not in ansible_facts.services
 
-    - name: Fail if Sumo Logic Collector service is not running
+    - name: Start and enable SumoLogic Collector service when it is stopped
+      ansible.builtin.systemd_service:
+        name: "{{ service_name }}"
+        state: started
+        enabled: true
+      when:
+        - service_name in ansible_facts.services
+        - ansible_facts.services[service_name].state != "running"
+
+    - name: Refresh service facts after remediation
+      ansible.builtin.service_facts:
+
+    - name: Fail if SumoLogic Collector service is still not running
       ansible.builtin.fail:
-        msg: "Sumo Logic Collector service exists but is not running"
-      when: ansible_facts.services[service_name].state != "running"
+        msg: "SumoLogic Collector service exists but could not be started"
+      when:
+        - service_name in ansible_facts.services
+        - ansible_facts.services[service_name].state != "running"
